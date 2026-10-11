@@ -23,6 +23,9 @@ describe Whatsapp::Providers::WhatsappCloudService do
   end
 
   describe '#send_message' do
+    # What an audio message carries besides its link
+    let(:audio_options) { ->(request) { JSON.parse(request.body)['audio'].except('link') } }
+
     context 'when called' do
       it 'calls message endpoints for normal messages' do
         stub_request(:post, 'https://graph.facebook.com/v13.0/123456789/messages')
@@ -69,6 +72,26 @@ describe Whatsapp::Providers::WhatsappCloudService do
                                    image: WebMock::API.hash_including({ caption: message.content, link: anything })
                                  })
           )
+          .to_return(status: 200, body: whatsapp_response.to_json, headers: response_headers)
+        expect(service.send_message('+123456789', message)).to eq 'message_id'
+      end
+
+      it 'sends an ogg audio attachment as a voice message' do
+        attachment = message.attachments.new(account_id: message.account_id, file_type: :audio)
+        attachment.file.attach(io: Rails.root.join('spec/assets/sample.ogg').open, filename: 'sample.ogg', content_type: 'audio/ogg')
+
+        stub_request(:post, 'https://graph.facebook.com/v13.0/123456789/messages')
+          .with { |request| audio_options.call(request) == { 'voice' => true } }
+          .to_return(status: 200, body: whatsapp_response.to_json, headers: response_headers)
+        expect(service.send_message('+123456789', message)).to eq 'message_id'
+      end
+
+      it 'sends other audio attachments as plain audio' do
+        attachment = message.attachments.new(account_id: message.account_id, file_type: :audio)
+        attachment.file.attach(io: Rails.root.join('spec/assets/sample.mp3').open, filename: 'sample.mp3', content_type: 'audio/mpeg')
+
+        stub_request(:post, 'https://graph.facebook.com/v13.0/123456789/messages')
+          .with { |request| audio_options.call(request) == {} }
           .to_return(status: 200, body: whatsapp_response.to_json, headers: response_headers)
         expect(service.send_message('+123456789', message)).to eq 'message_id'
       end
